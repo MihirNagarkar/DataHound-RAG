@@ -1,7 +1,12 @@
-pandas
+# Core Hybrid Retrieval, Evaluation & Testing
 numpy
+pandas
 requests
 rank_bm25
 faiss-cpu
 pytest
 
+# Web UI & Document Ingestion Pipeline
+flask
+docling
+markitdown
