@@ -1,0 +1,38 @@
+# Virtual Environment (Never push this!)
+venv/
+ENV/
+env/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Databases & Secrets
+*.db
+*.db-wal
+*.db-shm
+.env
+
+# Large Data & Index Artifacts (Keep folders clean)
+data/*
+!data/.gitkeep
+!data/NVIDIA_CFO.pdf
+
+processed_md/*
+!processed_md/.gitkeep
+
+chunks/*
+!chunks/.gitkeep
+
+indices/*
+!indices/.gitkeep
+
+# IDE Settings
+.vscode/
+.idea/
+
+*.xls
+*.csv
+*.pdf
+!data/NVIDIA_CFO.pdf

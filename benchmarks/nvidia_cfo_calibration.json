@@ -1,0 +1,6 @@
+[
+  {"query": "How much cash and liquid securities does the company hold on its balance sheet?", "in_domain": true},
+  {"query": "What caused the decline in video game sales last quarter?", "in_domain": true},
+  {"query": "What is the capital city of Australia?", "in_domain": false},
+  {"query": "What is the current exchange rate between the Japanese Yen and British Pound?", "in_domain": false}
+]

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Document Intelligence | Hybrid RAG Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 md:p-8 font-sans">
+  <div class="max-w-6xl mx-auto space-y-6">
+    
+    <!-- Header -->
+    <header class="border-b border-slate-800 pb-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+          <span>Hybrid Table RAG</span>
+          <span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono">BM25 + FAISS (RRF)</span>
+        </h1>
+        <p class="text-sm text-slate-400 mt-1">Layout-aware document intelligence with deterministic tabular grounding</p>
+      </div>
+    </header>
+
+    <!-- Search / Audit Form -->
+    <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 shadow-lg backdrop-blur">
+      <form id="search-form" class="space-y-4">
+        <div>
+          <label for="query-input" class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Query / Audit Prompt</label>
+          <div class="flex flex-col sm:flex-row gap-3">
+            <input 
+              type="text" 
+              id="query-input" 
+              placeholder="e.g. Extract revenue figures, segment breakdowns, or specific identifiers from the context..."
+              value=""
+              required
+              class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+            />
+            <button 
+              type="submit" 
+              id="submit-btn"
+              class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-3 rounded-lg text-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <span id="btn-text">Execute RAG</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Controls Bar -->
+        <div class="flex flex-wrap items-center justify-between gap-4 text-xs text-slate-400 pt-3 border-t border-slate-800/60">
+          <div class="flex flex-wrap items-center gap-4">
+            <label class="flex items-center gap-2">
+              <span class="font-medium text-slate-300">Dataset Index:</span>
+              <input 
+                type="text" 
+                id="dataset-input" 
+                value="{{ default_dataset or '' }}" 
+                placeholder="e.g. document_name"
+                class="bg-slate-950 border border-slate-700 rounded px-2.5 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </label>
+            <label class="flex items-center gap-2">
+              <span class="font-medium text-slate-300">Top-K Chunks:</span>
+              <select id="topk-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- Synthesis Output -->
+    <section id="result-section" class="hidden space-y-3">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Grounded Synthesis</h2>
+      <div id="llm-output" class="bg-slate-950 border border-slate-800 rounded-xl p-6 text-sm text-slate-200 font-sans leading-relaxed whitespace-pre-wrap"></div>
+    </section>
+
+    <!-- Telemetry & Chunks -->
+    <section id="telemetry-section" class="hidden space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Retrieved Context &amp; Rank Telemetry</h2>
+        <span id="chunks-count" class="text-xs bg-slate-800 text-slate-300 px-2.5 py-0.5 rounded-full font-mono">0 Chunks</span>
+      </div>
+      <div id="chunks-container" class="space-y-4"></div>
+    </section>
+
+  </div>
+
+  <script>
+    const form = document.getElementById('search-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const btnText = document.getElementById('btn-text');
+    const resultSection = document.getElementById('result-section');
+    const llmOutput = document.getElementById('llm-output');
+    const telemetrySection = document.getElementById('telemetry-section');
+    const chunksContainer = document.getElementById('chunks-container');
+    const chunksCount = document.getElementById('chunks-count');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const query = document.getElementById('query-input').value.trim();
+      const dataset = document.getElementById('dataset-input').value.trim();
+      const topK = document.getElementById('topk-select').value;
+
+      if (!query || !dataset) {
+        alert('Please provide both a query and a valid dataset index.');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      btnText.textContent = 'Retrieving & Generating...';
+      resultSection.classList.remove('hidden');
+      telemetrySection.classList.remove('hidden');
+      llmOutput.textContent = 'Processing dual-stream retrieval and synthesis...';
+      chunksContainer.innerHTML = '';
+
+      try {
+        const response = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, dataset_name: dataset, top_k: parseInt(topK) })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          llmOutput.textContent = `Error [${response.status}]: ${data.error || 'Request failed'}`;
+          return;
+        }
+
+        llmOutput.textContent = data.answer;
+        chunksCount.textContent = `${data.retrieved_chunks.length} Chunks Evaluated`;
+
+        data.retrieved_chunks.forEach((chunk, i) => {
+          const card = document.createElement('div');
+          card.className = 'bg-slate-950 border border-slate-800/80 rounded-xl p-5 text-xs space-y-3';
+          card.innerHTML = `
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 pb-3">
+              <div class="flex items-center gap-2">
+                <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-mono font-semibold">Rank #${chunk.final_rank}</span>
+                <span class="font-medium text-slate-200">${chunk.chunk_id}</span>
+                <span class="text-slate-500">(${chunk.type})</span>
+              </div>
+              <div class="flex items-center gap-3 font-mono text-[11px] text-slate-400">
+                <span>RRF: <strong class="text-white">${chunk.rrf_score}</strong></span>
+                <span>BM25: ${chunk.sparse_stats.score ? '#' + chunk.sparse_stats.rank + ' (' + chunk.sparse_stats.score + ')' : 'N/A'}</span>
+                <span>FAISS: ${chunk.dense_stats.cosine_sim ? '#' + chunk.dense_stats.rank + ' (' + chunk.dense_stats.cosine_sim + ')' : 'N/A'}</span>
+              </div>
+            </div>
+            <pre class="bg-slate-900 border border-slate-800 rounded p-3 text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap">${chunk.content}</pre>
+          `;
+          chunksContainer.appendChild(card);
+        });
+
+      } catch (err) {
+        llmOutput.textContent = `Client Exception: ${err.message}`;
+      } finally {
+        submitBtn.disabled = false;
+        btnText.textContent = 'Execute RAG';
+      }
+    });
+  </script>
+</body>
+</html>
