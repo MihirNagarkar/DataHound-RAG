@@ -110,7 +110,16 @@ DataHound-RAG/
 ├── chunker.py                         # Stage 2: Header-pinned table & heading-anchored prose chunker
 ├── retriever.py                       # Stage 3: BM25Okapi + FAISS (Ollama embeddings) + RRF engine
 ├── app.py                             # Stage 4: Flask auditor API & UI with deterministic guardrails
-├── eval_rag.py                        # Stage 5: Standalone IR, Guardrail & RAG Triad ablation suite
+├── eval_rag.py                        # Stage 5: CLI entrypoint for IR, Guardrail & RAG Triad ablation suite
+├── evaluation/                        # Modular evaluation package
+│   ├── models.py                      # Dataclasses (Chunk, EvalItem, RetrievalResult, GuardrailDecision)
+│   ├── datasets.py                    # Built-in corpora, 60-row ledger generator & JSON validator
+│   ├── metrics.py                     # Pure math: RRF, Hit@k, MRR@k, Recall@k, Context Precision@k
+│   ├── retrievers.py                  # Embedders, BM25/Dense indices, RetrieverAdapter & NaiveChunker
+│   ├── guardrails.py                  # DeterministicGuardrail, entity extractor & tau_dense calibration
+│   ├── judge.py                       # OllamaLLM & JSON-constrained RAG Triad LLM-as-a-Judge
+│   ├── runner.py                      # Benchmark and table-chunking orchestration runners
+│   └── reporting.py                   # Pandas aggregation, ASCII dashboard & GFM Markdown exporter
 ├── templates/
 │   └── index.html                     # Web UI frontend
 ├── data/

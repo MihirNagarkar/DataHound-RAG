@@ -227,9 +227,7 @@ class DualModeChunker:
         return str(out_json_path)
 
 
-# =====================================================================
 # CLI TEST RUNNER
-# =====================================================================
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("\nUsage: python chunker.py <path_to_markdown_file>")

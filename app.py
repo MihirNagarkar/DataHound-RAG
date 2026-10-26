@@ -27,9 +27,7 @@ retriever = HybridRetriever(
     ollama_base_url=OLLAMA_BASE_URL
 )
 
-# =========================================================================
-# LAYER 2: VERBATIM CITATION SYSTEM PROMPT
-# =========================================================================
+
 SYSTEM_PROMPT = """You are a strict, forensic Enterprise Document Intelligence Auditor.
 You must answer the user's question with 100% factual accuracy based ONLY on the provided Markdown context.
 
@@ -43,9 +41,9 @@ CRITICAL PROTOCOL TO ELIMINATE HALLUCINATIONS:
 3. Keep your explanation concise, strictly reporting only what is confirmed in your cited evidence.
 """
 
-# =========================================================================
-# LAYER 3: PYTHON FACT-CHECKING GUARDRAIL (DETERMINISTIC VERIFICATION)
-# =========================================================================
+
+# PYTHON FACT-CHECKING GUARDRAIL (DETERMINISTIC VERIFICATION)
+
 def get_available_datasets() -> List[str]:
     indices_dir = Path("indices")
     if not indices_dir.exists():
@@ -103,9 +101,9 @@ def call_local_llm(prompt: str, context_chunks: list) -> str:
     except Exception as e:
         raise RuntimeError(f"Ollama generation failed: {str(e)}") from e
 
-# =========================================================================
+
 # API ROUTES
-# =========================================================================
+
 @app.route("/", methods=["GET"])
 def index():
     available = get_available_datasets()

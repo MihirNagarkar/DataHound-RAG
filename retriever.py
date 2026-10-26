@@ -61,9 +61,9 @@ class HybridRetriever:
         self.faiss_index: faiss.IndexFlatIP | None = None
         self.embedding_dim: int = 768
 
-    # =========================================================================
+
     # TOKENIZATION & EMBEDDING CLIENT
-    # =========================================================================
+
     _BM25_STOPWORDS = frozenset(
         "a an the and or of to in on for with at by from is are was were be been it its this that these those "
         "what which who whom how when where why do does did can could should would will may might must i we you "
@@ -217,9 +217,9 @@ class HybridRetriever:
         res.raise_for_status()
         return np.array(res.json()["embedding"], dtype=np.float32)
 
-    # =========================================================================
-    # INDEX BUILDING & PERSISTENCE
-    # =========================================================================
+    
+    # INDEX BUILDING & PERSISTENCE:
+    
     def build_index(self, chunks_json_path_str: str) -> str:
         """
         Builds and serializes both BM25 and FAISS indices from a chunks JSON file.
@@ -297,9 +297,9 @@ class HybridRetriever:
             f"FAISS vectors: {self.faiss_index.ntotal}"
         )
 
-    # =========================================================================
+    
     # RETRIEVAL & RECIPROCAL RANK FUSION (RRF)
-    # =========================================================================
+    
     def search_sparse(self, query: str, top_k: int = 20) -> List[Tuple[int, float]]:
         """
         Executes BM25 search with Entity-Code Boosting.
@@ -436,9 +436,9 @@ class HybridRetriever:
 
         return merged_results
 
-# =====================================================================
+
 # CLI TEST RUNNER
-# =====================================================================
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("\nUsage:")

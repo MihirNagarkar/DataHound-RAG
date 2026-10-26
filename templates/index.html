@@ -5,6 +5,66 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Document Intelligence | Hybrid RAG Engine</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <style>
+    /* Custom Markdown Rendering for Tailwind Base Reset */
+    #llm-output table, .chunk-body table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1rem 0;
+      font-size: 0.85rem;
+    }
+    #llm-output th, #llm-output td, .chunk-body th, .chunk-body td {
+      border: 1px solid #334155;
+      padding: 0.6rem 0.85rem;
+      text-align: left;
+    }
+    #llm-output th, .chunk-body th {
+      background-color: #1e293b;
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+    #llm-output tr:nth-child(even), .chunk-body tr:nth-child(even) {
+      background-color: #0b1120;
+    }
+    #llm-output tr:hover, .chunk-body tr:hover {
+      background-color: #1e293b50;
+    }
+    #llm-output h1, #llm-output h2, #llm-output h3,
+    .chunk-body h1, .chunk-body h2, .chunk-body h3 {
+      font-weight: 700;
+      color: #38bdf8;
+      margin-top: 1rem;
+      margin-bottom: 0.4rem;
+    }
+    #llm-output h3, .chunk-body h3 {
+      font-size: 1rem;
+    }
+    #llm-output ul, .chunk-body ul {
+      list-style-type: disc;
+      padding-left: 1.5rem;
+      margin: 0.5rem 0;
+    }
+    #llm-output ol, .chunk-body ol {
+      list-style-type: decimal;
+      padding-left: 1.5rem;
+      margin: 0.5rem 0;
+    }
+    #llm-output p, .chunk-body p {
+      margin-bottom: 0.5rem;
+      line-height: 1.6;
+    }
+    #llm-output code, .chunk-body code {
+      background-color: #0f172a;
+      border: 1px solid #334155;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      font-family: ui-monospace, monospace;
+      font-size: 0.85em;
+      color: #cbd5e1;
+    }
+  </style>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen p-4 md:p-8 font-sans">
   <div class="max-w-6xl mx-auto space-y-6">
@@ -30,7 +90,7 @@
               type="text" 
               id="query-input" 
               placeholder="e.g. Extract revenue figures, segment breakdowns, or specific identifiers from the context..."
-              value=""
+              value="" 
               required
               class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
             />
@@ -61,8 +121,8 @@
               <span class="font-medium text-slate-300">Top-K Chunks:</span>
               <select id="topk-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500">
                 <option value="2">2</option>
-                <option value="3" selected>3</option>
-                <option value="5">5</option>
+                <option value="3">3</option>
+                <option value="5" selected>5</option>
               </select>
             </label>
           </div>
@@ -73,7 +133,7 @@
     <!-- Synthesis Output -->
     <section id="result-section" class="hidden space-y-3">
       <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Grounded Synthesis</h2>
-      <div id="llm-output" class="bg-slate-950 border border-slate-800 rounded-xl p-6 text-sm text-slate-200 font-sans leading-relaxed whitespace-pre-wrap"></div>
+      <div id="llm-output" class="bg-slate-950 border border-slate-800 rounded-xl p-6 text-sm text-slate-200 font-sans leading-relaxed"></div>
     </section>
 
     <!-- Telemetry & Chunks -->
@@ -129,10 +189,12 @@
           return;
         }
 
-        llmOutput.textContent = data.answer;
+        // Render LLM output as formatted HTML via marked.js
+        llmOutput.innerHTML = marked.parse(data.answer || '');
         chunksCount.textContent = `${data.retrieved_chunks.length} Chunks Evaluated`;
 
-        data.retrieved_chunks.forEach((chunk, i) => {
+        // Render each telemetry chunk with Markdown parsing for tables and headers
+        data.retrieved_chunks.forEach((chunk) => {
           const card = document.createElement('div');
           card.className = 'bg-slate-950 border border-slate-800/80 rounded-xl p-5 text-xs space-y-3';
           card.innerHTML = `
@@ -144,11 +206,13 @@
               </div>
               <div class="flex items-center gap-3 font-mono text-[11px] text-slate-400">
                 <span>RRF: <strong class="text-white">${chunk.rrf_score}</strong></span>
-                <span>BM25: ${chunk.sparse_stats.score ? '#' + chunk.sparse_stats.rank + ' (' + chunk.sparse_stats.score + ')' : 'N/A'}</span>
-                <span>FAISS: ${chunk.dense_stats.cosine_sim ? '#' + chunk.dense_stats.rank + ' (' + chunk.dense_stats.cosine_sim + ')' : 'N/A'}</span>
+                <span>BM25: ${chunk.sparse_stats && chunk.sparse_stats.score ? '#' + chunk.sparse_stats.rank + ' (' + chunk.sparse_stats.score + ')' : 'N/A'}</span>
+                <span>FAISS: ${chunk.dense_stats && chunk.dense_stats.cosine_sim ? '#' + chunk.dense_stats.rank + ' (' + chunk.dense_stats.cosine_sim + ')' : 'N/A'}</span>
               </div>
             </div>
-            <pre class="bg-slate-900 border border-slate-800 rounded p-3 text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap">${chunk.content}</pre>
+            <div class="chunk-body bg-slate-900 border border-slate-800 rounded p-4 text-slate-300 font-sans overflow-x-auto leading-relaxed">
+              ${marked.parse(chunk.content || '')}
+            </div>
           `;
           chunksContainer.appendChild(card);
         });
