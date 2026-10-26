@@ -1,14 +1,14 @@
 # DataHound-RAG
 
-A local-first, zero-hallucination **Hybrid Retrieval-Augmented Generation (RAG)** pipeline engineered for financial filings, audit ledgers, and technical documents containing dense tables.
+A local-first **Hybrid Retrieval-Augmented Generation (RAG)** pipeline engineered for financial filings, audit ledgers, and technical documents containing dense tables, featuring deterministic guardrails to reduce hallucination risk.
 
 Standard RAG pipelines break on tabular enterprise documents for four reasons:
 1. **Layout destruction:** Naive PDF text extractors flatten multi-column tables into unreadable token streams.
 2. **Schema amnesia:** Fixed-size text splitters sever rows 26–500 from their column headers on row 1, leaving downstream chunks with unlabelled numbers.
-3. **Single-retriever blind spots:** Dense embeddings (`FAISS`) collapse on exact alphanumeric identifiers (`TR109`, `E-4017`) and adjacent decimal columns, while lexical search (`BM25`) fails when users paraphrase domain concepts with zero keyword overlap.
+3. **Single-retriever blind spots:** Dense embeddings (`FAISS`) collapse on exact alphanumeric identifiers (`eg. Transaction IDs like TR109`) and adjacent decimal columns, while lexical search (`BM25`) fails when users paraphrase domain concepts with zero keyword overlap.
 4. **Row-substitution hallucinations:** When a queried identifier is absent from retrieved chunks, LLMs silently substitute values from neighbouring rows.
 
-This repository addresses each failure mode end-to-end—running 100% locally on **Ollama** (`nomic-embed-text` + `Llama 3.1 8B`)—and ships with a standalone IR and RAG Triad ablation suite (`eval_rag.py`) that verifies every architectural claim empirically.
+This repository systematically mitigates each failure mode—running locally on **Ollama** (`nomic-embed-text` + `Llama 3.1 8B`)—and ships with a modular IR, chunking, and RAG Triad evaluation suite (`eval_rag.py`) to benchmark retrieval trade-offs and error modes empirically.
 
 ---
 
@@ -16,31 +16,25 @@ This repository addresses each failure mode end-to-end—running 100% locally on
 
 ```mermaid
 flowchart TD
-    subgraph S1["1. Layout-Aware Ingestion (ingestion.py)"]
-        PDF["PDF Filings"] -->|IBM Docling| MD["Structured Markdown (processed_md/)"]
-        XLS["Excel / CSV / DOCX"] -->|MS MarkItDown| MD
+    subgraph Ingestion ["1. Layout-Aware Ingestion & Chunking"]
+        PDF["Raw Financial Filings"] --> Docling["IBM Docling Parser"]
+        Docling --> MD["Structural Markdown"]
+        MD --> Chunker["DualModeChunker"]
+        Chunker --> Prose["Prose Sliding Window (Anchored Headings)"]
+        Chunker --> Tables["Table Slices (Header-Pinned per Chunk)"]
     end
 
-    subgraph S2["2. Schema-Preserving Chunking (chunker.py)"]
-        MD --> PROSE["Prose Sliding Window (Section Heading Anchored)"]
-        MD --> TABLE["Table Segmenter (Heading + Column Headers Pinned per Slice)"]
-        PROSE --> CHUNKS["Contextual Chunks JSON (chunks/)"]
-        TABLE --> CHUNKS
+    subgraph Indexing ["2. Dual-Stream Indexing"]
+        Prose & Tables --> BM25["BM25Okapi (ID-Preserved Tokenization)"]
+        Prose & Tables --> FAISS["FAISS IndexFlatIP (Cosine Normalized)"]
     end
 
-    subgraph S3["3. Dual-Stream Hybrid Index (retriever.py)"]
-        CHUNKS --> BM25["Sparse Index: BM25Okapi (Stopword-Filtered + ID Boost)"]
-        CHUNKS --> FAISS["Dense Index: FAISS IndexFlatIP (nomic-embed-text + Task Prefixes)"]
-    end
-
-    subgraph S4["4. Query, RRF & Guardrails (app.py / eval_rag.py)"]
-        Q["User Query"] --> BM25
-        Q --> FAISS
-        BM25 --> RRF["Reciprocal Rank Fusion (k = 60, Adaptive Pool)"]
-        FAISS --> RRF
-        RRF --> GUARD{"Deterministic Guardrail (Injection / Entity / Cosine Gate)"}
-        GUARD -->|Refuse| REF["Deterministic Audit Refusal (Bypass LLM)"]
-        GUARD -->|Pass| LLM["Ollama Llama 3.1 8B (temp=0.0, Mandatory Verbatim Citation)"]
+    subgraph Retrieval ["3. Retrieval, Fusion & Verification"]
+        Query["User Query"] --> BM25 & FAISS
+        BM25 & FAISS --> RRF["Reciprocal Rank Fusion (k=60)"]
+        RRF --> Guard["Deterministic Guardrail (Entity Gate + Tau_Dense)"]
+        Guard -- "Absent Entity / OOD" --> Reject["Deterministic Refusal (0 LLM Tokens)"]
+        Guard -- "Verified Evidence" --> LLM["Llama 3.1 8B (temp=0.0, Evidence Extraction)"]
     end
 ```
 
@@ -51,16 +45,19 @@ flowchart TD
   * **Sparse stream:** Identifier-preserving tokenizer (`TR109`, `05-01-2016`, `E-4017`) with stopword removal and a $5\times$ term-frequency boost on opaque record codes, excluding fiscal/calendar period shorthands (`FY25`, `Q4`) from destructive filtering.
   * **Dense stream:** L2-normalized `FAISS IndexFlatIP` (exact cosine similarity) using `nomic-embed-text` with asymmetric `search_document:` and `search_query:` prefixes and GPU batching.
   * **Reciprocal Rank Fusion (RRF):** Combines rankers without score-scale calibration via $\text{RRF}(d) = \sum_{i \in R} \frac{1}{k + r_i(d)}$ ($k = 60$), capping candidate pools on small corpora so bottom-half documents cannot accumulate phantom consensus credit.
-* **Three-Layer Anti-Hallucination Defense:**
+* **Three-Layer Hallucination Mitigation Defense:**
   1. *Retrieval gate:* Returns empty context when a queried record ID (`TR9999`, `E-9999`) is absent across the entire index; ranks exact-ID chunks first and backfills remaining slots for multi-hop context when present.
   2. *Deterministic Python guardrail:* Rejects prompt injections, missing entity codes, and low-evidence out-of-domain queries (`lexical coverage < tau_lex` and `max_dense_cosine < tau_dense`, calibrated on held-out queries with zero test-set leakage) before calling the LLM.
-  3. *Forensic system prompt:* Locks `temperature=0.0` (`num_ctx=4096`) and requires a verbatim `### Extracted Evidence` block prior to synthesis.
+  3. *Forensic system prompt:* Locks `temperature=0.0` (`num_ctx=4096`) and requires a verbatim `### Extracted Evidence` block prior to synthesis to constrain generation strictly to retrieved text.
 
 ---
 
 ## Empirical Benchmark Results
 
 All benchmarks were executed locally against **Ollama** using `nomic-embed-text` (embeddings) and `llama3.1:8b-instruct-q4_K_M` (generation and JSON-constrained RAG Triad judging). Out-of-domain attacks are evaluated strictly via **Refusal Accuracy** so they never distort in-domain IR macro-averages.
+
+> [!NOTE]
+> **Evaluation Scope & Preliminary Results:** These benchmark metrics evaluate comparative ablation across retrieval and chunking strategies on focused test sets. With small sample sizes (8–12 queries), they serve as an engineering evaluation scaffold to identify trade-offs rather than proof of uniform accuracy across all enterprise domains.
 
 ### 1. Table-Chunking Ablation: Naive vs. Header-Pinned (`--suite chunking`)
 
@@ -75,8 +72,8 @@ All benchmarks were executed locally against **Ollama** using `nomic-embed-text`
 | Header-Pinned / FAISS | 0.500 | 0.208 | 0.000 | 94.9 |
 | **Header-Pinned / Hybrid** | **1.000** | 0.938 | **0.875** | 89.9 |
 
-* **Why Dense-only fails on numeric tables:** `FAISS` drops to `Hit@3 = 0.375–0.500` (`Answer Correct = 0.000`) on exact dollar/transaction-ID lookups, whereas `BM25` and `Hybrid` achieve `Hit@3 = 1.000`.
-* **Why Header-Pinning is mandatory:** Even when `BM25` and `Hybrid` retrieve the exact target row (`Hit@3 = 1.000`), `Naive` splitting strips column headers after chunk #1, cutting LLM answer accuracy in half (`0.500` vs. `0.875–1.000`).
+* **Why Dense-only struggles on numeric tables:** `FAISS` drops to `Hit@3 = 0.375–0.500` (`Answer Correct = 0.000`) on exact dollar and transaction-ID lookups, whereas `BM25` and `Hybrid` achieve `Hit@3 = 1.000`.
+* **Impact of Header-Pinning on Tabular LLM Accuracy:** Even when `BM25` and `Hybrid` retrieve the exact target row (`Hit@3 = 1.000`), `Naive` splitting strips column headers after chunk #1, causing LLM answer accuracy to drop significantly (`0.500` vs. `0.875–1.000`) due to lost column identities.
 
 ### 2. Dual-Stream Retrieval Ablation (`--suite retrieval`)
 
@@ -134,6 +131,14 @@ DataHound-RAG/
 ├── rag_nvidia_cfo_report.md           # Generated real-PDF benchmark report (NVIDIA Q4 FY25)
 └── requirements.txt                   # Python dependencies
 ```
+
+---
+
+## Security & Threat Model Considerations
+
+- **Lexical vs. Semantic Injections:** The pre-retrieval regex gate deterministically intercepts explicit override commands (e.g., prompt extraction or instruction overrides) and non-existent entity IDs with zero LLM token overhead. However, heuristic regex alone cannot defend against indirect prompt injections embedded within untrusted third-party document text or PDF metadata.
+- **Serving Path Integration:** While out-of-domain detection and refusal behaviors (`tau_dense`, cosine gating, injection patterns) are benchmarked in `evaluation/guardrails.py`, enterprise production hardening requires porting these checks into synchronous middleware within the Flask serving path (`app.py`) prior to retrieval and generation.
+- **Parametric Context Boundaries & Tabular Reasoning:** Operating at `temperature=0.0` with a mandatory `### Extracted Evidence` citation protocol grounds Llama 3.1 8B to the retrieved Markdown context. However, multi-page financial reconciliation remains bounded by localized context window limits (`num_ctx=4096`) and the arithmetic limitations of autoregressive LLMs on dense tables. Complex queries requiring cross-statement math or full-ledger aggregation are best addressed by pairing hybrid retrieval with deterministic code execution (e.g., Pandas).
 
 ---
 
@@ -203,7 +208,17 @@ python retriever.py search NVIDIA_CFO "Compute & Networking segment revenue Q4 F
 python app.py
 ```
 
-Open `http://localhost:8000` in your browser, or query the REST endpoint directly:
+Open `http://localhost:8000` in your browser. The web interface provides real-time verification and rank telemetry:
+
+| Query & Extracted Evidence | Grounded Audit Answer |
+| :---: | :---: |
+| ![Query & Extracted Evidence](assets/DataHound-RAG_1.png) | ![Grounded Synthesis](assets/DataHound-RAG_2.png) |
+
+| Multi-Stream Rank Telemetry | Header-Pinned Table Slices |
+| :---: | :---: |
+| ![Rank Telemetry & Prose Chunks](assets/DataHound-RAG_3.png) | ![Header-Pinned Table Chunk](assets/DataHound-RAG_4.png) |
+
+Or query the REST endpoint directly via CLI:
 
 ```bash
 curl -X POST http://localhost:8000/api/query \
@@ -249,10 +264,11 @@ python eval_rag.py `
 
 ### Plugging in a Custom Retriever
 
-Subclass `RetrieverAdapter` in [`eval_rag.py`](eval_rag.py) and implement `retrieve(query, k) -> RetrievalResult`:
+Subclass `RetrieverAdapter` in [`evaluation/retrievers.py`](evaluation/retrievers.py) and implement `retrieve(query, k) -> RetrievalResult`:
 
 ```python
-from eval_rag import RetrieverAdapter, RetrievalResult, RetrievedChunk
+from evaluation.retrievers import RetrieverAdapter
+from evaluation.models import RetrievalResult, RetrievedChunk
 
 class MyCustomRetriever(RetrieverAdapter):
     name = "CustomHybrid"
