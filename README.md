@@ -15,27 +15,36 @@ This repository systematically mitigates each failure mode—running locally on 
 ## System Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Ingestion ["1. Layout-Aware Ingestion & Chunking"]
-        PDF["Raw Financial Filings"] --> Docling["IBM Docling Parser"]
-        Docling --> MD["Structural Markdown"]
-        MD --> Chunker["DualModeChunker"]
-        Chunker --> Prose["Prose Sliding Window (Anchored Headings)"]
-        Chunker --> Tables["Table Slices (Header-Pinned per Chunk)"]
+flowchart LR
+    subgraph Offline ["1. Offline Ingestion & Indexing"]
+        direction TB
+        Docs["Raw Filings (.pdf, .xlsx, .csv)"] --> Parser["Docling & MarkItDown Parsers"]
+        Parser --> Chunker["DualModeChunker"]
+        Chunker --> Prose["Prose Windows (Heading-Anchored)"]
+        Chunker --> Tables["Table Slices (25-Row Header-Pinned)"]
+        Prose --> Corpus["Chunk Corpus (chunks/*.json)"]
+        Tables --> Corpus
+        Corpus --> BM25["BM25Okapi Index (.pkl, 5x ID Boost)"]
+        Corpus --> FAISS["FAISS IndexFlatIP (.index, Cosine)"]
     end
 
-    subgraph Indexing ["2. Dual-Stream Indexing"]
-        Prose & Tables --> BM25["BM25Okapi (ID-Preserved Tokenization)"]
-        Prose & Tables --> FAISS["FAISS IndexFlatIP (Cosine Normalized)"]
+    subgraph Online ["2. Online Retrieval & Verification"]
+        direction TB
+        Query(["User Audit Query"]) --> Retriever["HybridRetriever"]
+        Retriever --> Sparse["Sparse Lexical Search (BM25)"]
+        Retriever --> Dense["Dense Semantic Search (nomic-embed)"]
+        Sparse --> RRF["Reciprocal Rank Fusion (k = 60)"]
+        Dense --> RRF
+        RRF --> Guard["Deterministic Guardrail (Entity + Tau_Dense)"]
+        Guard --> Reject(["Refusal: Absent ID / OOD (0 Tokens)"])
+        Guard --> LLM["Llama 3.1 8B (temp=0.0, Cited Answer)"]
     end
 
-    subgraph Retrieval ["3. Retrieval, Fusion & Verification"]
-        Query["User Query"] --> BM25 & FAISS
-        BM25 & FAISS --> RRF["Reciprocal Rank Fusion (k=60)"]
-        RRF --> Guard["Deterministic Guardrail (Entity Gate + Tau_Dense)"]
-        Guard -- "Absent Entity / OOD" --> Reject["Deterministic Refusal (0 LLM Tokens)"]
-        Guard -- "Verified Evidence" --> LLM["Llama 3.1 8B (temp=0.0, Evidence Extraction)"]
-    end
+    Offline --> Online
+
+    style Guard fill:#1e293b,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+    style Reject fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#fecaca
+    style LLM fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#d1fae5
 ```
 
 ### Key Engineering Decisions
