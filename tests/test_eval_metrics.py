@@ -66,10 +66,14 @@ def test_likert_normalisation():
     ("Show TR6 and OPR12 rows", ["TR6", "OPR12"]),
     ("Find invoice 2024-INV-001", ["2024-INV-001"]),
     ("Does it run on an h200 or s3 with v2 and sha256?", []),
+    ("What was Q4 FY25 and FY2024 revenue?", []),
     ("What is the capital of Australia?", []),
 ])
 def test_extract_entities(query, expected):
+    from retriever import HybridRetriever
+
     assert ev.extract_entities(query) == expected
+    assert HybridRetriever.extract_entities(query) == expected
 
 
 def _result(texts, cos=None):

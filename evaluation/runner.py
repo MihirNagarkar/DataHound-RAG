@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -13,7 +14,7 @@ import pandas as pd
 
 from .datasets import MOCK_CORPUS, build_chunking_items, build_ledger_markdown, validate_benchmark
 from .guardrails import DeterministicGuardrail
-from .judge import GEN_PROMPT, OllamaLLM, judge_triad
+from .judge import GEN_PROMPT, OllamaLLM, judge_triad, _is_abstention
 from .metrics import answer_contains_value, hit_at_k, recall_at_k, reciprocal_rank_at_k
 from .models import EvalItem, GuardrailDecision, REFUSAL_MESSAGE
 from .retrievers import (
@@ -55,6 +56,7 @@ def run_benchmark(
     items: Sequence[EvalItem],
     guardrail: Optional[DeterministicGuardrail],
     llm: Optional[OllamaLLM],
+    judge_llm: Optional[Any] = None,
     k: int = 5,
     context_k: int = 3,
     guardrail_reference: Optional[RetrieverAdapter] = None,
@@ -92,6 +94,8 @@ def run_benchmark(
                 "refusal_correct": refused == item.expected_refusal, "guardrail_reason": decision.reason,
                 "retrieved_ids": ",".join(ids), "retrieval_ms": retrieval_ms, "generation_ms": float("nan"),
                 "answer": None,
+                "query_text": item.query,
+                "ground_truth": item.ground_truth_answer,
             }
             if item.expected_refusal:  # IR metrics undefined; excluded from macro-averages
                 row.update(hit=float("nan"), rr=float("nan"), recall=float("nan"))
@@ -117,8 +121,14 @@ def run_benchmark(
                     row["answer"] = answer
                     if answer_checker is not None and not item.expected_refusal:
                         row["answer_correct"] = answer_checker(item, answer)
-                    if run_judges and answer and not item.expected_refusal:
-                        row.update(judge_triad(llm, item, ctx, answer))
+                    actual_judge = judge_llm if judge_llm is not None else llm
+                    if run_judges and actual_judge is not None and answer and not item.expected_refusal:
+                        row.update(judge_triad(actual_judge, item, ctx, answer))
+            if item.expected_refusal:
+                ans = str(row.get("answer") or "")
+                row["end_to_end_abstention"] = True if (refused or _is_abstention(ans)) else False
+            else:
+                row["end_to_end_abstention"] = float("nan")
             rows.append(row)
             logger.info("%s | %-6s | hit=%s rr=%s refused=%s", item.query_id, r.name,
                         row["hit"], f"{row['rr']:.2f}" if row["rr"] == row["rr"] else "-", refused)
@@ -129,6 +139,7 @@ def run_chunking_suite(args: argparse.Namespace, llm: Optional[OllamaLLM]) -> pd
     md, rows = build_ledger_markdown()
     embedder: Embedder = HashingEmbedder() if args.offline else OllamaEmbedder(args.embed_model, args.ollama_url)
     strategies = {"Naive": NaiveChunker().chunk(md), "Header-Pinned": header_pinned_chunks(md)}
+    ctx_k = args.context_k if getattr(args, "context_k", None) is not None else int(os.getenv("CHUNKING_CONTEXT_K", "1"))
     frames: List[pd.DataFrame] = []
     for name, chunks in strategies.items():
         logger.info("Chunking strategy %-13s -> %d chunks", name, len(chunks))
@@ -136,7 +147,7 @@ def run_chunking_suite(args: argparse.Namespace, llm: Optional[OllamaLLM]) -> pd
         validate_benchmark(items, [c.chunk_id for c in chunks])
         bm25, dense = BM25Index(chunks), DenseIndex(chunks, embedder)
         retrievers = [BM25Retriever(bm25), FaissRetriever(dense), HybridRRFRetriever(bm25, dense, args.rrf_k)]
-        df = run_benchmark(retrievers, items, None, llm, k=3, context_k=1,
+        df = run_benchmark(retrievers, items, None, llm, k=3, context_k=ctx_k,
                            answer_checker=answer_contains_value, run_judges=False)
         df.insert(0, "strategy", name)
         df["n_chunks"] = len(chunks)

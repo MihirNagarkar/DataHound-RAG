@@ -35,8 +35,8 @@ flowchart LR
         Retriever --> Dense["Dense Semantic Search (nomic-embed)"]
         Sparse --> RRF["Reciprocal Rank Fusion (k = 60)"]
         Dense --> RRF
-        RRF --> Guard["Deterministic Guardrail (Entity + Tau_Dense)"]
-        Guard --> Reject(["Refusal: Absent ID / OOD (0 Tokens)"])
+        RRF --> Guard["Deterministic Guardrail (Entity Gate + Dense Cosine Gate)"]
+        Guard --> Reject(["Refusal: Absent ID / OOD (0 LLM Tokens)"])
         Guard --> LLM["Llama 3.1 8B (temp=0.0, Cited Answer)"]
     end
 
@@ -63,48 +63,53 @@ flowchart LR
 
 ## Empirical Benchmark Results
 
-All benchmarks were executed locally against **Ollama** using `nomic-embed-text` (embeddings) and `llama3.1:8b-instruct-q4_K_M` (generation and JSON-constrained RAG Triad judging). Out-of-domain attacks are evaluated strictly via **Refusal Accuracy** so they never distort in-domain IR macro-averages.
+All generation was executed locally against **Ollama** using `nomic-embed-text` (embeddings) and `llama3.1:8b-instruct-q4_K_M` (generation locked at `temperature=0.0`, `seed=7`). RAG Triad faithfulness, relevance, and precision were independently evaluated using decoupled **Gemini 3.5 Flash Lite** (locked at `temperature=0.0`, `seed=7`, rate-limited to 4 RPM with local disk caching). Note that the Gemini judge sends the question, retrieved chunks, and model answer to Google's API for evaluation; for fully offline or air-gapped runs, `--judge-provider ollama` runs the judge locally with Llama 3.1. Pure benchmark questions and public financial statements are evaluated—no private data is transmitted. Out-of-domain attacks are evaluated strictly via **Refusal Accuracy** and **End-to-End Abstention** so they never distort in-domain IR macro-averages.
 
 > [!NOTE]
-> **Evaluation Scope & Preliminary Results:** These benchmark metrics evaluate comparative ablation across retrieval and chunking strategies on focused test sets. With small sample sizes (8–12 queries), they serve as an engineering evaluation scaffold to identify trade-offs rather than proof of uniform accuracy across all enterprise domains.
+> **Evaluation Scope & Provenance:** These benchmark metrics evaluate comparative ablation across retrieval and chunking strategies on expanded, frozen test sets (Ledger $N=30$, NVIDIA $N=34$, DevOps $N=12$). For full statistical methodology, Wilson 95% confidence intervals, and paired McNemar tests, see [`reports/VERIFICATION_FINAL.md`](reports/VERIFICATION_FINAL.md).
 
 ### 1. Table-Chunking Ablation: Naive vs. Header-Pinned (`--suite chunking`)
 
-60-row financial settlement ledger (`10` rows/chunk = `6` table segments + `1` prose chunk), evaluated on 8 single-row lookups requiring disambiguation between adjacent decimal columns (`fee_usd` vs. `tax_usd`), passing the top-1 chunk to the generator. Full report: [`rag_chunking_report.md`](rag_chunking_report.md).
+60-row financial settlement ledger (`10` rows/chunk with `0` overlap for ablation contrast vs `25` rows / `2` overlap production default), evaluated on 30 single-row lookups (T01–T30) across 4 columns (`fee_usd`, `tax_usd`, `channel`, `risk_label`), passing the top-1 chunk (`context_k=1`) to the generator. Full report: [`reports/rag_chunking_report.md`](reports/rag_chunking_report.md).
 
-| Strategy / Mode | Hit@3 | MRR@3 | Answer Correct (Top-1 Context) | Retrieval ms |
-|---|---:|---:|---:|---:|
-| Naive / BM25 | **1.000** | 0.938 | 0.500 | 0.2 |
-| Naive / FAISS | 0.375 | 0.167 | 0.000 | 77.2 |
-| Naive / Hybrid | **1.000** | 0.938 | 0.500 | 72.1 |
-| **Header-Pinned / BM25** | **1.000** | **1.000** | **1.000** | **0.2** |
-| Header-Pinned / FAISS | 0.500 | 0.208 | 0.000 | 94.9 |
-| **Header-Pinned / Hybrid** | **1.000** | 0.938 | **0.875** | 89.9 |
+| Strategy / Mode | Hit@1 | Hit@3 | MRR@3 | Answer Correct (Top-1 Context) | Wilson 95% CI | Avg Latency |
+|---|---:|---:|---:|---:|---|---:|
+| Naive / BM25 | 0.800 | **1.000** | 0.900 | 16/30 (53.3%) | [36.1%, 69.8%] | **0.2 ms** |
+| Naive / FAISS | 0.200 | 0.467 | 0.311 | 6/30 (20.0%) | [9.5%, 37.3%] | 135.4 ms |
+| Naive / Hybrid | 0.433 | 0.967 | 0.689 | 11/30 (36.7%) | [21.9%, 54.5%] | 49.7 ms |
+| **Header-Pinned / BM25** | **1.000** | **1.000** | **1.000** | **30/30 (100.0%)** | [88.6%, 100.0%] | **0.2 ms** |
+| Header-Pinned / FAISS | 0.233 | 0.567 | 0.372 | 7/30 (23.3%) | [11.8%, 40.9%] | 51.3 ms |
+| **Header-Pinned / Hybrid** | 0.833 | **1.000** | 0.917 | **25/30 (83.3%)** | [66.4%, 92.7%] | 46.7 ms |
 
-* **Why Dense-only struggles on numeric tables:** `FAISS` drops to `Hit@3 = 0.375–0.500` (`Answer Correct = 0.000`) on exact dollar and transaction-ID lookups, whereas `BM25` and `Hybrid` achieve `Hit@3 = 1.000`.
-* **Impact of Header-Pinning on Tabular LLM Accuracy:** Even when `BM25` and `Hybrid` retrieve the exact target row (`Hit@3 = 1.000`), `Naive` splitting strips column headers after chunk #1, causing LLM answer accuracy to drop significantly (`0.500` vs. `0.875–1.000`) due to lost column identities.
+* **Why Dense-only struggles on numeric tables:** `FAISS` drops to `Hit@3 = 0.467–0.567` (`Answer Correct = 0.200–0.233`) on exact tabular lookups, whereas `BM25` and `Hybrid` achieve `Hit@3 = 0.967–1.000`.
+* **Lexical Superiority on Numeric Lookups:** Because the 30 ledger queries target rows by exact numeric amount (23 queries) or opaque transaction ID (7 queries), Header-Pinned BM25 (30/30, 100.0%) beat Header-Pinned Hybrid (25/30, 83.3%) under top-1 context (`context_k=1`).
+* **Impact of Header-Pinning on Tabular Accuracy:** The drop in Hybrid answer accuracy from **83.3% (25/30)** to **36.7% (11/30)** reflects two compounding factors: lower rank-1 retrieval under naive chunking (Hit@1 drops from 0.833 to 0.433) and lost column identities in headerless chunks (McNemar paired test $p = 0.0005$, $b=15, c=1$). BM25 serves as the cleaner test of header-loss: while BM25 retains high retrieval under both chunkings (Hit@1 0.800 vs 1.000; Hit@3 1.000 in both), stripped headers account for up to 8 of the 14 misses (correctness drops from 100.0% to 53.3%, $p = 0.0001$, $b=14, c=0$) due to column ambiguity between `fee_usd` and `tax_usd`, with the remaining 6 being rank-1 retrieval misses.
+* **Multi-Chunk Exploratory Suite (`context_k=3`):** Under top-1 context, Header-Pinned Hybrid had 5 misses where the relevant chunk was retrieved at rank 2 (`rr=0.50`, `Hit@3=1.000`). Expanding to `context_k=3` fully resolves all 5 misses, achieving **30/30 (100.0%)** correctness.
 
 ### 2. Dual-Stream Retrieval Ablation (`--suite retrieval`)
 
-16-chunk technical corpus evaluated across 12 queries (`exact_keyword_match`, `semantic_intent`, `complex_multi_hop`, `out_of_domain_attack`), with `tau_dense = 0.503` calibrated on 4 disjoint held-out queries. Full report: [`rag_benchmark_report.md`](rag_benchmark_report.md).
+16-chunk technical corpus evaluated across 12 queries (`exact_keyword_match`, `semantic_intent`, `complex_multi_hop`, `out_of_domain_attack`), with `tau_dense = 0.614` calibrated on 4 disjoint held-out queries. Full report: [`reports/rag_benchmark_report.md`](reports/rag_benchmark_report.md).
 
-| Mode | Hit Rate@5 | MRR@5 | Recall@5 | Refusal Acc (OOD) | False Refusal | Faithfulness | Answer Relevance | Context Precision |
+| Mode | Hit Rate@5 | MRR@5 | Recall@5 | Refusal Acc (Gate) | False Refusal | Faithfulness | Answer Relevance | Context Precision |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| BM25 | 0.750 | 0.750 | 0.750 | 0.750 | 0.000 | 1.000 | 1.000 | 0.667 |
-| FAISS | **1.000** | **1.000** | **1.000** | 0.750 | 0.000 | 1.000 | 1.000 | 0.917 |
-| **Hybrid (RRF)** | **1.000** | 0.938 | **1.000** | 0.750 | 0.000 | 1.000 | 1.000 | **0.938** |
+| BM25 | 0.750 | 0.750 | 0.750 | **1.000** | 0.000 | 1.000 | 0.625 | 0.729 |
+| FAISS | **1.000** | **1.000** | **1.000** | **1.000** | 0.000 | 1.000 | **0.750** | **1.000** |
+| **Hybrid (RRF)** | **1.000** | 0.938 | **1.000** | **1.000** | 0.000 | 1.000 | **0.750** | 0.938 |
 
-* On `semantic_intent` queries (zero lexical overlap), `BM25` collapses to `Hit@5 = 0.333`, while `FAISS` and `Hybrid` achieve `1.000` (`Hybrid` achieves the highest rank-aware `Context Precision` at `0.938`).
+* On `semantic_intent` queries (zero lexical overlap), `BM25` collapses to `Hit@5 = 0.333`, while `FAISS` and `Hybrid` achieve `1.000` (`Hybrid` achieves rank-aware `Context Precision` at `0.938`).
 
 ### 3. Real Enterprise PDF: NVIDIA Q4 FY25 CFO Commentary (`--use-production-index NVIDIA_CFO`)
 
-27-chunk index parsed via IBM Docling and `DualModeChunker` from [`data/NVIDIA_CFO.pdf`](data/NVIDIA_CFO.pdf), evaluated on [`benchmarks/nvidia_cfo_eval.json`](benchmarks/nvidia_cfo_eval.json) (`tau_dense = 0.571` calibrated on [`benchmarks/nvidia_cfo_calibration.json`](benchmarks/nvidia_cfo_calibration.json)). Full report: [`rag_nvidia_cfo_report.md`](rag_nvidia_cfo_report.md).
+27-chunk index parsed via IBM Docling and `DualModeChunker` from [`data/NVIDIA_CFO.pdf`](data/NVIDIA_CFO.pdf), evaluated on [`benchmarks/nvidia_cfo_eval.json`](benchmarks/nvidia_cfo_eval.json) ($N=34$; 8 exact match, 8 semantic intent, 8 multi-hop, 10 OOD attacks), with `tau_dense = 0.633` calibrated on 20 held-out queries ([`benchmarks/nvidia_cfo_calibration.json`](benchmarks/nvidia_cfo_calibration.json)). Full report: [`reports/rag_nvidia_cfo_report.md`](reports/rag_nvidia_cfo_report.md).
 
-| Mode | Hit Rate@5 | MRR@5 | Recall@5 | Exact Match MRR@5 | Semantic Hit@5 | Multi-Hop MRR@5 | Faithfulness | Answer Relevance |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| BM25 | 0.625 | 0.562 | 0.625 | **1.000** | 0.000 | 0.750 | 1.000 | 0.625 |
-| FAISS | **0.875** | **0.812** | **0.875** | 0.833 | **0.667** | **1.000** | 1.000 | **0.750** |
-| **Hybrid (RRF)** | **0.875** | 0.692 | **0.875** | **1.000** | **0.667** | **1.000** | 1.000 | **0.750** |
+| Mode | Hit Rate@5 | MRR@5 | Recall@5 | Refusal Acc (Gate) | End-to-End Abstention | False Refusal | Faithfulness | Answer Relevance | Context Precision |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| BM25 | 0.792 | 0.585 | 0.750 | 0.700 | **1.000** | 0.042 | 0.957 | 0.696 | 0.636 |
+| FAISS | 0.833 | **0.764** | 0.812 | 0.700 | **1.000** | 0.042 | **1.000** | **0.783** | **0.766** |
+| **Hybrid (RRF + Gate)** | **0.917** | 0.701 | **0.875** | 0.700 | **1.000** | 0.042 | **1.000** | **0.783** | 0.721 |
+
+* **Zero-Token Guardrail Defenses:** The pre-generation guardrail (entity gate and dense cosine gate with `tau_dense = 0.633`) deterministically intercepted 70.0% (7/10) of out-of-domain queries without invoking the LLM: 5 absent-ID queries (`empty_context`), 1 prompt injection (`P10`), and 1 low-similarity query (`P09`). The generator model's strict evidence citation prompt prompted abstention on the remaining 3 near-domain false premises (`P12` Bitcoin, `P33` Blackwell cancellation, `P34` Qualcomm acquisition), achieving **100.0% end-to-end abstention**. The only in-domain false refusal is 0.042 (1/24, query `P22`), a known-defective query asking about "commercial billings" where the source text reports revenue.
+* **Semantic & Multi-Hop Superiority:** On semantic intent queries, BM25 collapses to Hit@5 = 0.375, while Hybrid reaches **0.750**; on complex multi-hop queries, Hybrid achieves **1.000 Hit Rate@5** (MRR@5 = 0.906).
 
 ---
 
@@ -131,23 +136,28 @@ DataHound-RAG/
 ├── data/
 │   └── NVIDIA_CFO.pdf                 # Sample financial filing for reproducible benchmarking
 ├── benchmarks/
-│   ├── nvidia_cfo_eval.json           # 12 labelled evaluation items for NVIDIA_CFO
-│   └── nvidia_cfo_calibration.json    # 4 disjoint held-out queries for tau_dense calibration
-├── tests/
-│   └── test_eval_metrics.py           # 21 unit tests verifying RRF, MRR, CP@k, guardrails & GFM output
-├── rag_benchmark_report.md            # Generated retrieval ablation report (DevOps corpus)
-├── rag_chunking_report.md             # Generated chunking ablation report (60-row ledger)
-├── rag_nvidia_cfo_report.md           # Generated real-PDF benchmark report (NVIDIA Q4 FY25)
-└── requirements.txt                   # Python dependencies
+│   ├── nvidia_cfo_eval.json           # 34 labelled evaluation items for NVIDIA_CFO
+│   ├── nvidia_cfo_calibration.json    # 20 disjoint held-out queries for tau_dense calibration
+│   ├── DATASET_HASHES.txt             # SHA-256 hashes of frozen benchmark datasets
+│   └── DATASET_REVIEW.md              # Detailed provenance, category & overlap review
+├── tests/                             # 63 unit tests verifying metrics, guardrails, datasets & stats
+├── reports/
+│   ├── VERIFICATION_FINAL.md          # Comprehensive statistical verification report
+│   ├── rag_benchmark_report.md        # Generated retrieval ablation report (DevOps corpus)
+│   ├── rag_chunking_report.md         # Generated chunking ablation report (60-row ledger)
+│   └── rag_nvidia_cfo_report.md       # Generated real-PDF benchmark report (NVIDIA Q4 FY25)
+└── requirements.txt                   # Core Python dependencies (offline RAG runtime)
 ```
 
 ---
 
-## Security & Threat Model Considerations
+## Security, Limitations & Threat Model Considerations
 
 - **Lexical vs. Semantic Injections:** The pre-retrieval regex gate deterministically intercepts explicit override commands (e.g., prompt extraction or instruction overrides) and non-existent entity IDs with zero LLM token overhead. However, heuristic regex alone cannot defend against indirect prompt injections embedded within untrusted third-party document text or PDF metadata.
-- **Serving Path Integration:** While out-of-domain detection and refusal behaviors (`tau_dense`, cosine gating, injection patterns) are benchmarked in `evaluation/guardrails.py`, enterprise production hardening requires porting these checks into synchronous middleware within the Flask serving path (`app.py`) prior to retrieval and generation.
+- **Serving Path Integration:** While out-of-domain detection and refusal behaviors (`tau_dense`, cosine gating, injection patterns) are benchmarked in `evaluation/guardrails.py`, enterprise production hardening requires porting these checks into synchronous middleware within the Flask serving path (`app.py`): entity and regex checks prior to retrieval, and dense cosine gating post-retrieval prior to LLM generation.
 - **Parametric Context Boundaries & Tabular Reasoning:** Operating at `temperature=0.0` with a mandatory `### Extracted Evidence` citation protocol grounds Llama 3.1 8B to the retrieved Markdown context. However, multi-page financial reconciliation remains bounded by localized context window limits (`num_ctx=4096`) and the arithmetic limitations of autoregressive LLMs on dense tables. Complex queries requiring cross-statement math or full-ledger aggregation are best addressed by pairing hybrid retrieval with deterministic code execution (e.g., Pandas).
+- **False Refusal Sensitivity & Defective Query P22:** Calibrating `tau_dense = 0.633` on held-out queries creates a tight boundary (in-domain min 0.640, OOD max 0.625, margin +0.015). Query `P22` is a known-defective benchmark query asking about *"aggregate commercial billings"* while the source text reports revenue growth (billings and revenue are distinct accounting concepts); its semantic divergence dips slightly below the threshold (`cos = 0.6283 < 0.633`), resulting in a 4.2% (1/24) in-domain false refusal rate.
+- **Benchmark Freeze Protocol:** Benchmark queries were frozen prior to running evaluations. Documented defects (e.g., `P23` referencing a 10-K filing rather than earnings commentary) are intentionally preserved and transparently audited in [`reports/VERIFICATION_FINAL.md`](reports/VERIFICATION_FINAL.md) rather than retroactively tuned.
 
 ---
 
@@ -256,18 +266,19 @@ python eval_rag.py --offline
 # 2. Inspect held-out guardrail threshold calibration only
 python eval_rag.py --calibrate --skip-generation
 
-# 3. Full Dual-Stream Retrieval + Guardrail + RAG Triad benchmark -> rag_benchmark_report.md
-python eval_rag.py --csv rag_benchmark_raw.csv
+# 3. Full Dual-Stream Retrieval + Guardrail + RAG Triad benchmark -> reports/rag_benchmark_report.md
+# (Default uses Gemini judge; pass --judge-provider ollama for fully offline local evaluation)
+python eval_rag.py --output reports/rag_benchmark_report.md --csv rag_benchmark_raw.csv
 
-# 4. Naive vs. Header-Pinned Table-Chunking ablation -> rag_chunking_report.md
-python eval_rag.py --suite chunking --csv rag_chunking_raw.csv
+# 4. Naive vs. Header-Pinned Table-Chunking ablation -> reports/rag_chunking_report.md
+python eval_rag.py --suite chunking --output reports/rag_chunking_report.md --csv rag_chunking_raw.csv
 
-# 5. Benchmark a production HybridRetriever index -> rag_nvidia_cfo_report.md
+# 5. Benchmark a production HybridRetriever index -> reports/rag_nvidia_cfo_report.md
 python eval_rag.py `
   --use-production-index NVIDIA_CFO `
   --benchmark-file benchmarks/nvidia_cfo_eval.json `
   --calibration-file benchmarks/nvidia_cfo_calibration.json `
-  --output rag_nvidia_cfo_report.md `
+  --output reports/rag_nvidia_cfo_report.md `
   --csv rag_nvidia_cfo_raw.csv
 ```
 

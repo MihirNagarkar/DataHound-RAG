@@ -1,0 +1,5 @@
+# SHA-256 Hashes of Frozen Benchmark Datasets (Phase 3)
+
+2708c45166d7667580969c21d0dae79d0e84c5ed608953ab74253d7d43df23dc  evaluation/datasets.py
+de027bda2731f5910d0d4baf76164eb707183bd903c2a0a82c9d2dcbfe7e8d7c  benchmarks/nvidia_cfo_eval.json
+45f599fce69c8f24631b00cdfd0ef4ee22f4ceb9608723af1cc3e82711aff91b  benchmarks/nvidia_cfo_calibration.json

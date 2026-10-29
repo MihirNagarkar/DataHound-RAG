@@ -1,0 +1,9 @@
+{
+  "old_tau": 0.58,
+  "new_tau": 0.633,
+  "margin": 0.015,
+  "separable": true,
+  "n": 20,
+  "min_in_domain": 0.64,
+  "max_ood": 0.625
+}

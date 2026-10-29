@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 
 from flask import Flask, request, jsonify, render_template
 import requests
+from entities import extract_entities
 from retriever import HybridRetriever
 
 logging.basicConfig(
@@ -52,11 +53,11 @@ def get_available_datasets() -> List[str]:
 
 def extract_query_entities(query: str) -> List[str]:
     """
-    Finds exact alphanumeric codes in the query for the guardrail.
-    Generic pattern: 2+ Uppercase letters followed by numbers (e.g., AB123, ID90, INV405).
-    Developers can customize this regex for specific domains (CUSIP, SSN, etc.).
+    Finds exact alphanumeric record codes in the query for the guardrail.
+    Delegates to the unified HybridRetriever.extract_entities() regex so serving,
+    retrieval, and evaluation share identical entity detection rules.
     """
-    return re.findall(r"\b([A-Z]{2,}\d+)\b", query)
+    return extract_entities(query)
 
 def verify_evidence_presence(target_entity: str, context_chunks: list) -> bool:
     """Scans the retrieved chunks to ensure the requested entity code actually exists."""
@@ -133,8 +134,8 @@ def query_endpoint():
 
         # 2. Layer 3 Python Guardrail Check
         query_entities = extract_query_entities(user_query)
-        if query_entities:
-            target = query_entities[0].upper()
+        for raw_ent in query_entities:
+            target = raw_ent.upper()
             found_in_context = verify_evidence_presence(target, retrieved_chunks)
 
             if not found_in_context:

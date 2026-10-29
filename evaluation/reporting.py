@@ -22,6 +22,8 @@ def overall_table(df: pd.DataFrame, k: int) -> pd.DataFrame:
     out[f"MRR@{k}"] = ind.groupby("mode")["rr"].mean()
     out[f"Recall@{k}"] = ind.groupby("mode")["recall"].mean()
     out["Refusal Acc (OOD)"] = ood.groupby("mode")["refusal_correct"].mean()
+    if "end_to_end_abstention" in ood.columns and ood["end_to_end_abstention"].notna().any():
+        out["End-to-end abstention (gate OR model)"] = ood.groupby("mode")["end_to_end_abstention"].mean()
     out["False Refusal (in-domain)"] = ind.groupby("mode")["refused"].mean()
     for col, label in (("faithfulness", "Faithfulness"), ("answer_relevance", "Answer Relevance"),
                        ("context_precision", "Context Precision")):
@@ -79,10 +81,14 @@ def judge_coverage_note(df: pd.DataFrame) -> Optional[str]:
 
 
 def print_dashboard(df: pd.DataFrame, k: int, rrf_k: int, llm_model: Optional[str],
-                    notes: Optional[Sequence[str]] = None, corpus_size: int = len(MOCK_CORPUS)) -> None:
+                    notes: Optional[Sequence[str]] = None, corpus_size: int = len(MOCK_CORPUS),
+                    header_line: Optional[str] = None) -> None:
     bar = "=" * 78
     sub = f"k={k} | RRF k={rrf_k} | LLM={llm_model or 'n/a'} | queries={df.query_id.nunique()}"
-    print(f"\n{bar}\n{'HYBRID RAG ABLATION BENCHMARK':^78}\n{sub:^78}\n{bar}")
+    print(f"\n{bar}\n{'HYBRID RAG ABLATION BENCHMARK':^78}\n{sub:^78}")
+    if header_line:
+        print(f"{header_line:^78}")
+    print(f"{bar}")
     print(render_ascii_table("[1] OVERALL MACRO-AVERAGES (in-domain unless noted)", overall_table(df, k).T.T,
                              "Mode"))
     for col, label in (("hit", f"Hit Rate@{k}"), ("rr", f"MRR@{k}"), ("recall", f"Recall@{k}")):
@@ -131,16 +137,21 @@ def _md_table(
 
 
 def export_markdown(df: pd.DataFrame, path: Path, k: int, rrf_k: int, llm_model: Optional[str],
-                    notes: Optional[Sequence[str]] = None, corpus_size: int = len(MOCK_CORPUS)) -> None:
+                    notes: Optional[Sequence[str]] = None, corpus_size: int = len(MOCK_CORPUS),
+                    header_line: Optional[str] = None) -> None:
     parts = [
         "# Hybrid RAG Ablation Benchmark",
+    ]
+    if header_line:
+        parts.append(f"\n> **Provenance:** `{header_line}`\n")
+    parts.extend([
         f"\n*Config:* `k={k}`, `RRF k={rrf_k}`, generator/judge `{llm_model or 'n/a (generation skipped)'}`, "
         f"{df.query_id.nunique()} queries over a {corpus_size}-chunk corpus. "
         "IR metrics are macro-averaged over in-domain queries only; out-of-domain attacks are scored "
         "solely by Refusal Accuracy so they do not distort retrieval scores.\n",
         "## 1. Overall macro-averages (best per metric in **bold**)\n",
         _md_table(overall_table(df, k), "Mode", bold_axis="col"),
-    ]
+    ])
     for sub_id, (col, label) in zip(("2a", "2b", "2c"),
                                     (("hit", f"Hit Rate@{k}"), ("rr", f"MRR@{k}"), ("recall", f"Recall@{k}"))):
         parts += [f"\n## {sub_id}. Category matrix - {label} (best mode per row in **bold**)\n",
@@ -162,17 +173,23 @@ def export_markdown(df: pd.DataFrame, path: Path, k: int, rrf_k: int, llm_model:
     path.write_text("\n".join(parts) + "\n", encoding="utf-8")
 
 
-def report_chunking(df: pd.DataFrame, path: Path, llm_model: Optional[str]) -> None:
+def report_chunking(df: pd.DataFrame, path: Path, llm_model: Optional[str],
+                    header_line: Optional[str] = None) -> None:
     tbl = chunking_table(df)
     n = df.groupby("strategy")["n_chunks"].first().to_dict()
     print("\n" + render_ascii_table("CHUNKING ABLATION - Naive vs Header-Pinned (k=3, top-1 context)", tbl,
                                     "Strategy / Mode"))
-    md = ["# Chunking Ablation: Naive vs Header-Pinned Table Chunks\n",
-          f"*Setup:* 60-row transaction ledger, 8 single-row lookup questions, chunks per strategy: {n}. "
+    md = ["# Chunking Ablation: Naive vs Header-Pinned Table Chunks\n"]
+    if header_line:
+        md.append(f"> **Provenance:** `{header_line}`\n")
+    q_count = df.query_id.nunique()
+    md.extend([
+          f"*Setup:* 60-row transaction ledger, {q_count} single-row lookup questions, chunks per strategy: {n}. "
           f"Relevance = the chunk contains the full gold row. Generation uses only the top-1 chunk as context "
           f"(`{llm_model or 'n/a, generation skipped'}`); correctness = gold cell value appears in the answer.\n",
           _md_table(tbl, "Strategy / Mode"),
           "\n- Fee and tax are both small decimals, so a chunk without column headers is ambiguous to the reader.",
-          "- 8 queries is an anecdotal sample, not a statistically significant result."]
+          f"- {q_count} queries is a targeted sample."]
+    )
     path.write_text("\n".join(md) + "\n", encoding="utf-8")
 

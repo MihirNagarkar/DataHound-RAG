@@ -149,6 +149,12 @@ def build_chunking_items(rows: Sequence[Dict[str, str]], chunks: Sequence[Chunk]
     specs = [  # (row index, kind)
         (13, "tax"), (22, "fee"), (30, "risk"), (37, "tax"), (45, "fee"), (51, "risk"),
         (57, "channel"), (6, "tax"),
+        (1, "fee"), (3, "tax"), (7, "channel"), (9, "risk"),
+        (10, "fee"), (15, "tax"), (17, "channel"), (19, "risk"),
+        (21, "fee"), (24, "tax"), (26, "channel"), (28, "risk"),
+        (32, "fee"), (35, "tax"), (39, "channel"),
+        (41, "risk"), (43, "fee"), (47, "tax"), (49, "channel"),
+        (53, "risk"), (55, "fee"), (59, "tax"),
     ]
     items: List[EvalItem] = []
     for n, (idx, kind) in enumerate(specs, 1):

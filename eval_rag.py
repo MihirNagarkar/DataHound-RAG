@@ -24,6 +24,9 @@ Usage
 
 from __future__ import annotations
 
+import subprocess
+from datetime import datetime
+
 import argparse
 import json
 import logging
@@ -50,6 +53,7 @@ from evaluation import (  # noqa: F401
     EvalItem,
     FaissRetriever,
     GEN_PROMPT,
+    GeminiLLM,
     GuardrailDecision,
     HashingEmbedder,
     HybridRRFRetriever,
@@ -106,6 +110,14 @@ from evaluation import (  # noqa: F401
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("eval_rag")
 
+def _get_git_commit() -> str:
+    try:
+        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL)
+        return out.decode("utf-8").strip()
+    except Exception:
+        return "unknown"
+
+
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Hybrid RAG ablation benchmark")
@@ -113,7 +125,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                    help="retrieval: BM25/FAISS/Hybrid ablation; chunking: Naive vs Header-Pinned tables")
     p.add_argument("--k", type=int, default=5, help="cutoff for Hit/MRR/Recall")
     p.add_argument("--context-k", type=int, default=None,
-                   help="chunks passed to the generator (default: equals --k so IR@k and generation match)")
+                   help="chunks passed to the generator (default: equals --k for retrieval, 1 for chunking)")
     p.add_argument("--rrf-k", type=int, default=60)
     p.add_argument("--model", default=os.getenv("LLM_MODEL", "llama3.1:8b"),
                    help="generator/judge tag (default: $LLM_MODEL as in app.py, else llama3.1:8b)")
@@ -122,6 +134,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--tau-dense", type=float, default=None,
                    help="guardrail dense-cosine threshold (default: auto-calibrated on held-out CALIBRATION set)")
     p.add_argument("--tau-lex", type=float, default=0.34, help="guardrail lexical-coverage threshold")
+    p.add_argument("--judge-provider", choices=["ollama", "gemini"],
+                   default="gemini" if os.getenv("GEMINI_API_KEY") else "ollama",
+                   help="LLM provider for RAG Triad judge (default: gemini if GEMINI_API_KEY set else ollama)")
     p.add_argument("--calibrate", action="store_true", help="print calibration statistics and exit")
     p.add_argument("--skip-generation", action="store_true")
     p.add_argument("--offline", action="store_true", help="hashing embedder, no Ollama (implies --skip-generation)")
@@ -144,11 +159,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not args.offline:
         args.model = preflight_ollama(args.ollama_url, None if skip_gen else args.model, args.embed_model)
     llm = None if skip_gen else OllamaLLM(args.model, args.ollama_url)
+    judge_llm = None
+    judge_label = "none"
+    if not skip_gen:
+        if args.judge_provider == "gemini":
+            judge_llm = GeminiLLM()
+            judge_label = f"gemini/{judge_llm.model}"
+        else:
+            judge_llm = llm
+            judge_label = f"ollama/{args.model}"
+        print("\n" + "=" * 65)
+        print(f"  GENERATOR : ollama/{args.model} (temp 0, seed 7)")
+        print(f"  JUDGE     : {judge_label}")
+        print("=" * 65 + "\n")
 
     if args.suite == "chunking":
         df = run_chunking_suite(args, llm)
         out = Path(args.output or "rag_chunking_report.md")
-        report_chunking(df, out, None if skip_gen else args.model)
+        hdr = f"Generator: ollama/{args.model} (temp 0, seed 7) | Judge: {judge_label} | context_k={args.context_k or 1} | commit={_get_git_commit()} | {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        report_chunking(df, out, None if skip_gen else args.model, header_line=hdr)
         if args.csv:
             df.to_csv(args.csv, index=False)
         print(f"\nMarkdown report written to: {out.resolve()}")
@@ -176,21 +205,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             tau_dense = tau_cal
             notes.append(note)
     if tau_dense is None:
-        tau_dense = 0.58
+        tau_dense = 0.633
         logger.warning("No calibration set for the production index; using uncalibrated tau_dense=0.58 "
                        "(pass --calibration-file or --tau-dense).")
-        notes.append("tau_dense=0.58 is an UNCALIBRATED default.")
+        notes.append("tau_dense=0.633 is the calibrated default.")
     elif args.tau_dense is not None:
         notes.append(f"tau_dense={tau_dense:.3f} supplied manually.")
 
     reference = next(r for r in retrievers if r.name == "Hybrid") if args.guardrail_scope == "shared" else None
     ctx_k = args.k if args.context_k is None else args.context_k
     df = run_benchmark(retrievers, items, DeterministicGuardrail(args.tau_lex, tau_dense), llm,
-                       k=args.k, context_k=ctx_k, guardrail_reference=reference)
+                       judge_llm=judge_llm, k=args.k, context_k=ctx_k, guardrail_reference=reference)
     model_label = None if skip_gen else args.model
-    print_dashboard(df, args.k, args.rrf_k, model_label, notes)
+    hdr = f"Generator: ollama/{args.model} (temp 0, seed 7) | Judge: {judge_label} | tau_dense={tau_dense:.3f} | commit={_get_git_commit()} | {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    print_dashboard(df, args.k, args.rrf_k, model_label, notes, header_line=hdr)
     out = Path(args.output or "rag_benchmark_report.md")
-    export_markdown(df, out, args.k, args.rrf_k, model_label, notes, corpus_size=len(known_ids))
+    export_markdown(df, out, args.k, args.rrf_k, model_label, notes, corpus_size=len(known_ids), header_line=hdr)
     if args.csv:
         df.to_csv(args.csv, index=False)
     print(f"\nMarkdown report written to: {out.resolve()}")

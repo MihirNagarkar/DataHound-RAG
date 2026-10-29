@@ -34,5 +34,12 @@ indices/*
 
 *.xls
 *.csv
+!reports/**/*.csv
+!reports/*.csv
 *.pdf
 !data/NVIDIA_CFO.pdf
+.judge_cache/
+scratch/
+*.bak
+reports/verification_*/
+reports/final_*/

@@ -1,15 +1,17 @@
 # Chunking Ablation: Naive vs Header-Pinned Table Chunks
 
-*Setup:* 60-row transaction ledger, 8 single-row lookup questions, chunks per strategy: {'Header-Pinned': 7, 'Naive': 7}. Relevance = the chunk contains the full gold row. Generation uses only the top-1 chunk as context (`llama3.1:8b-instruct-q4_K_M`); correctness = gold cell value appears in the answer.
+> **Provenance:** `Generator: ollama/llama3.1:8b-instruct-q4_K_M (temp 0, seed 7) | Judge: ollama/llama3.1:8b-instruct-q4_K_M | context_k=1 | commit=d6d553b | 2026-10-29 12:44`
+
+*Setup:* 60-row transaction ledger, 30 single-row lookup questions, chunks per strategy: {'Header-Pinned': 7, 'Naive': 7}. Relevance = the chunk contains the full gold row. Generation uses only the top-1 chunk as context (`llama3.1:8b-instruct-q4_K_M`); correctness = gold cell value appears in the answer.
 
 | Strategy / Mode | Hit@3 | MRR@3 | Answer Correct (top-1 ctx) | Retrieval ms |
 |---|---:|---:|---:|---:|
-| Naive / BM25 | **1.000** | 0.938 | 0.500 | 0.2 |
-| Naive / FAISS | 0.375 | 0.167 | 0.000 | 77.2 |
-| Naive / Hybrid | **1.000** | 0.938 | 0.500 | 72.1 |
+| Naive / BM25 | **1.000** | 0.900 | 0.533 | 0.2 |
+| Naive / FAISS | 0.467 | 0.311 | 0.200 | 135.4 |
+| Naive / Hybrid | 0.967 | 0.689 | 0.367 | 49.7 |
 | Header-Pinned / BM25 | **1.000** | **1.000** | **1.000** | **0.2** |
-| Header-Pinned / FAISS | 0.500 | 0.208 | 0.000 | 94.9 |
-| Header-Pinned / Hybrid | **1.000** | 0.938 | 0.875 | 89.9 |
+| Header-Pinned / FAISS | 0.567 | 0.372 | 0.233 | 51.3 |
+| Header-Pinned / Hybrid | **1.000** | 0.917 | 0.833 | 46.7 |
 
 - Fee and tax are both small decimals, so a chunk without column headers is ambiguous to the reader.
-- 8 queries is an anecdotal sample, not a statistically significant result.
+- 30 queries is a targeted sample.

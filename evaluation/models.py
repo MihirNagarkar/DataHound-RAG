@@ -11,7 +11,7 @@ circular imports between retrievers, guardrails, metrics, and runners.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 REFUSAL_MESSAGE = "I cannot answer this: the knowledge base does not contain supporting evidence."
 
@@ -34,6 +34,7 @@ class EvalItem:
     ground_truth_answer: str
     golden_chunk_ids: List[str]
     expected_refusal: bool
+    lexical_overlap: Optional[float] = None
 
 
 @dataclass

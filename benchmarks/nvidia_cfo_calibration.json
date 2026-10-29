@@ -1,6 +1,82 @@
 [
-  {"query": "How much cash and liquid securities does the company hold on its balance sheet?", "in_domain": true},
-  {"query": "What caused the decline in video game sales last quarter?", "in_domain": true},
-  {"query": "What is the capital city of Australia?", "in_domain": false},
-  {"query": "What is the current exchange rate between the Japanese Yen and British Pound?", "in_domain": false}
+  {
+    "query": "How much cash and liquid securities does the company hold on its balance sheet?",
+    "in_domain": true
+  },
+  {
+    "query": "What caused the decline in video game sales last quarter?",
+    "in_domain": true
+  },
+  {
+    "query": "What was the sequential percentage expansion for Professional Visualization revenue in Q4?",
+    "in_domain": true
+  },
+  {
+    "query": "How much cumulative interest income did the company accumulate over the complete twelve months?",
+    "in_domain": true
+  },
+  {
+    "query": "What was the final effective corporate tax rate recorded under GAAP for the entire fiscal year?",
+    "in_domain": true
+  },
+  {
+    "query": "What was the historical annual gross margin percentage achieved in fiscal 2024?",
+    "in_domain": true
+  },
+  {
+    "query": "What was the total dollar amount recorded for OEM and Other revenue in Q4 FY25?",
+    "in_domain": true
+  },
+  {
+    "query": "What was the total expenditure for property and equipment purchases in the cash flow reconciliation?",
+    "in_domain": true
+  },
+  {
+    "query": "What was the diluted non-GAAP earnings per share figure across the full twelve-month term?",
+    "in_domain": true
+  },
+  {
+    "query": "What is the forecasted GAAP gross margin percentage reported in the forward-looking outlook table?",
+    "in_domain": true
+  },
+  {
+    "query": "What is the standard boiling point of liquid nitrogen at atmospheric pressure?",
+    "in_domain": false
+  },
+  {
+    "query": "Who was the prime minister of the United Kingdom during the Battle of Waterloo?",
+    "in_domain": false
+  },
+  {
+    "query": "How does the cellular photosynthesis process convert sunlight into glucose?",
+    "in_domain": false
+  },
+  {
+    "query": "What are the primary structural rules for composing a Japanese haiku poem?",
+    "in_domain": false
+  },
+  {
+    "query": "What ingredients are required to bake a traditional French sourdough baguette?",
+    "in_domain": false
+  },
+  {
+    "query": "What is the mean orbital distance between the Earth and the Moon in kilometers?",
+    "in_domain": false
+  },
+  {
+    "query": "How much capital did NVIDIA deploy to purchase commercial jet airliner production facilities from Boeing?",
+    "in_domain": false
+  },
+  {
+    "query": "Why did NVIDIA transition all server firmware libraries away from CUDA over to Apple Metal in 2025?",
+    "in_domain": false
+  },
+  {
+    "query": "What was the total revenue generated from selling modular nuclear reactor power systems?",
+    "in_domain": false
+  },
+  {
+    "query": "What civil penalty did aviation regulators impose on NVIDIA regarding autonomous satellite launches?",
+    "in_domain": false
+  }
 ]

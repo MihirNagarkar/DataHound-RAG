@@ -13,6 +13,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from rank_bm25 import BM25Okapi
+from entities import extract_entities, _ENTITY_RE, _NON_RECORD_ENTITY_RE
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,12 +72,9 @@ class HybridRetriever:
         "up down off use used using get gets got has have had having give gives please explain tell write "
         "describe fast long often much many".split()
     )
-    _NON_RECORD_ENTITY_RE = re.compile(
-        r"^(?:FY|CY)\d{2,4}$|^(?:Q[1-4]|H[12])$|"
-        r"^(?:IPV[46]|SHA\d+|TLS\d+|UTF\d+|HTTP[23]|OAUTH2|BASE64|X86|ARM64|AMD64|"
-        r"H100|H200|A100|B100|B200|GB200|RTX\d+|NVLINK\d*)$",
-        flags=re.IGNORECASE,
-    )
+    _ENTITY_RE = _ENTITY_RE
+    _NON_RECORD_ENTITY_RE = _NON_RECORD_ENTITY_RE
+    extract_entities = staticmethod(extract_entities)
 
     @classmethod
     def tokenize_text(cls, text: str) -> List[str]:
@@ -313,15 +311,13 @@ class HybridRetriever:
             return []
 
         # ANTI-HALLUCINATION BOOST:
-        # If the user mentioned a specific entity code (e.g., TR6, OPR12, AGNT3),
+        # If the user mentioned a specific entity code (e.g., TR6, OPR12, E-4017, 2024-INV-001),
         # boost its weight by repeating it so generic column words don't dilute it.
+        entity_tokens = {e.lower() for e in self.extract_entities(query)}
         boosted_tokens: List[str] = []
         for t in tokens:
             boosted_tokens.append(t)
-            if (
-                re.match(r"^(?:[a-z]{2,}\d+|[a-z]+[-_][a-z0-9_-]*\d[a-z0-9_-]*)$", t)
-                and not self._NON_RECORD_ENTITY_RE.match(t)
-            ):
+            if t in entity_tokens:
                 boosted_tokens.extend([t] * 5)  # 5x BM25 Weight Boost for exact IDs
 
         scores = self.bm25.get_scores(boosted_tokens)
@@ -356,13 +352,8 @@ class HybridRetriever:
         if not self.chunks:
             raise RuntimeError("Retriever contains no loaded chunks.")
 
-        # 1. Extract opaque record IDs (e.g. ['TR6', 'E-4017']), excluding period/tech tags like FY25 or H200
-        raw_entities = re.findall(
-            r"\b([A-Za-z]{2,}\d+|[A-Za-z]+[-_][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*)\b", query
-        )
-        required_entities = [
-            ent.upper() for ent in raw_entities if not self._NON_RECORD_ENTITY_RE.match(ent)
-        ]
+        # 1. Extract opaque record IDs (e.g. ['TR6', 'E-4017', '2024-INV-001']), excluding period/tech tags like FY25 or H200
+        required_entities = [ent.upper() for ent in self.extract_entities(query)]
 
         # Cap candidate pool on small corpora so bottom-ranked chunks do not receive RRF consensus credit
         n_chunks = len(self.chunks)

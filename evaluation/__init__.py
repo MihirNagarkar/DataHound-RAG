@@ -22,6 +22,7 @@ from .judge import (
     JUDGE_PRECISION_PROMPT,
     JUDGE_TRIAD_PROMPT,
     OllamaLLM,
+    GeminiLLM,
     _is_abstention,
     _norm_likert,
     _parse_json,
@@ -76,6 +77,7 @@ from .retrievers import (
     tokenize,
 )
 from .runner import build_retrievers, run_benchmark, run_chunking_suite
+from .stats import mcnemar_exact, wilson_ci
 
 __all__ = [
     "BENCHMARK",
@@ -101,6 +103,7 @@ __all__ = [
     "NaiveChunker",
     "OllamaEmbedder",
     "OllamaLLM",
+    "GeminiLLM",
     "ProductionHybridRetrieverAdapter",
     "REFUSAL_MESSAGE",
     "RetrievalResult",
@@ -130,6 +133,7 @@ __all__ = [
     "judge_coverage_note",
     "judge_triad",
     "load_benchmark",
+    "mcnemar_exact",
     "overall_table",
     "preflight_ollama",
     "print_dashboard",
@@ -142,4 +146,5 @@ __all__ = [
     "run_chunking_suite",
     "tokenize",
     "validate_benchmark",
+    "wilson_ci",
 ]

@@ -28,24 +28,10 @@ _INJECTION_PATTERNS = [re.compile(p, re.I) for p in (
     r"you are now\b", r"\bjailbreak\b", r"disregard .{0,20}(rules|instructions)",
 )]
 
-# Identifier = alphanumeric token(s) joined by '-'/'_' containing >=1 letter AND >=1 digit (leading digits
-# allowed, e.g. 2024-INV-001). Kept only if it looks like an opaque ID: a separator is present OR >=2 letters
-# (TR6, OPR12) - this drops v2, s3, h200. Common technical terms are whitelisted so e.g. "sha256" cannot
-# trigger a spurious entity-absent refusal. Slash-delimited IDs (A/12) are intentionally not matched.
-_ENTITY_RE = re.compile(r"\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*\b")
+from entities import extract_entities, _ENTITY_RE, _NON_RECORD_ENTITY_RE
+
 _ENTITY_IGNORE = frozenset({"sha1", "sha256", "sha512", "md5", "utf8", "ipv4", "ipv6", "http2", "http3",
                             "oauth2", "base64", "tls12", "tls13", "x86", "arm64", "amd64", "ec2", "s3"})
-
-
-def extract_entities(query: str) -> List[str]:
-    """Opaque identifier codes in the query that the guardrail must verify in retrieved evidence."""
-    out: List[str] = []
-    for m in _ENTITY_RE.findall(query):
-        letters = sum(ch.isalpha() for ch in m)
-        if m.lower() in _ENTITY_IGNORE or not (("-" in m or "_" in m) or letters >= 2):
-            continue
-        out.append(m)
-    return out
 
 
 class DeterministicGuardrail:
@@ -58,7 +44,7 @@ class DeterministicGuardrail:
          (dense signal ignored when the retriever has none, i.e. BM25-only).
     """
 
-    def __init__(self, tau_lex: float = 0.34, tau_dense: float = 0.58) -> None:
+    def __init__(self, tau_lex: float = 0.34, tau_dense: float = 0.633) -> None:
         self.tau_lex, self.tau_dense = tau_lex, tau_dense
 
     def evaluate(self, query: str, result: RetrievalResult) -> GuardrailDecision:
