@@ -99,8 +99,13 @@ def test_nvidia_eval_dataset_valid():
         if it["category"] == "complex_multi_hop":
             assert len(it["golden_chunk_ids"]) >= 2
 
-    # Absent IDs
-    absent_ids = ["INV-2024-9981", "NV-9982-TX", "TR-8841-NV", "PO-98210-X", "INV-2025-0994"]
+    from entities import extract_entities
+    absent_ids = [
+        e for it in items
+        if it["category"] == "out_of_domain_attack"
+        for e in extract_entities(it["query"])
+        ]
+    assert len(absent_ids) >= 5
     for aid in absent_ids:
         for cid, content in chunks.items():
             assert aid.lower() not in content.lower(), f"Absent ID {aid} in {cid}"
@@ -143,7 +148,7 @@ def test_dataset_hashes_match():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        expected_hash, rel_path = line.split(None, 1)
-        actual_hash = hashlib.sha256(Path(rel_path).read_bytes()).hexdigest()
+        expected_hash, rel_path = line.split(None, 1)    
+        actual_hash = hashlib.sha256(Path(rel_path).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
         assert actual_hash == expected_hash, f"Hash mismatch for {rel_path}: {actual_hash} != {expected_hash}"
 

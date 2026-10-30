@@ -254,8 +254,10 @@ curl -X POST http://localhost:8000/api/query \
 Verifies RRF math, Hit@$k$, MRR@$k$, Recall@$k$, rank-aware Context Precision@$k$, entity extraction, guardrail rules, and Markdown table rendering without requiring Ollama:
 
 ```powershell
-pytest tests -q
+pytest -q
 ```
+
+Run `pytest -q` from the repo root. On a fresh clone, 62 tests pass and `test_nvidia_eval_dataset_valid` is skipped until you ingest data/nvidia_cfo.pdf (`python ingestion.py data/NVIDIA_CFO.pdf` followed by `python chunker.py processed_md/NVIDIA_CFO.md`) to create chunks/NVIDIA_CFO_chunks.json; with local chunks all 63 pass. data/nvidia_cfo.pdf is NVIDIA's publicly released Q4 FY25 CFO commentary, included unmodified for reproducibility (© NVIDIA; removed on request).
 
 ### Run Benchmarks
 
