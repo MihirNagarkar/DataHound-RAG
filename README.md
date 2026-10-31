@@ -315,3 +315,9 @@ class MyCustomRetriever(RetrieverAdapter):
         return RetrievalResult(chunks=chunks, diagnostics={"max_dense_cosine": hits[0].cosine if hits else 0.0})
 ```
 
+---
+
+## Author
+
+**Mihir Nagarkar**<br>
+[GitHub](https://github.com/MihirNagarkar) · [LinkedIn](https://www.linkedin.com/in/mihir-nagarkar)
