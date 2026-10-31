@@ -319,5 +319,5 @@ class MyCustomRetriever(RetrieverAdapter):
 
 ## Author
 
-**Mihir Nagarkar**<br>
+Mihir Nagarkar · 
 [GitHub](https://github.com/MihirNagarkar) · [LinkedIn](https://www.linkedin.com/in/mihir-nagarkar)
