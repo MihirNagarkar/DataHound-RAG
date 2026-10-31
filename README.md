@@ -70,7 +70,7 @@ All generation was executed locally against **Ollama** using `nomic-embed-text` 
 
 ### 1. Table-Chunking Ablation: Naive vs. Header-Pinned (`--suite chunking`)
 
-60-row financial settlement ledger (`10` rows/chunk with `0` overlap for ablation contrast vs `25` rows / `2` overlap production default), evaluated on 30 single-row lookups (T01–T30) across 4 columns (`fee_usd`, `tax_usd`, `channel`, `risk_label`), passing the top-1 chunk (`context_k=1`) to the generator. Full report: [`reports/rag_chunking_report.md`](reports/rag_chunking_report.md).
+A synthetic 60-row settlement ledger (seeded generator, `seed=7`), chunked at `10` rows with `0` overlap for ablation contrast (production default: `25` rows, `2` overlap), evaluated on 30 single-row lookups (T01–T30) across 4 columns (`fee_usd`, `tax_usd`, `channel`, `risk_label`), passing the top-1 chunk (`context_k=1`) to the generator. Full report: [`reports/rag_chunking_report.md`](reports/rag_chunking_report.md).
 
 | Strategy / Mode | Hit@1 | Hit@3 | MRR@3 | Answer Correct (Top-1 Context) | Wilson 95% CI | Avg Latency |
 |---|---:|---:|---:|---:|---|---:|
@@ -134,7 +134,7 @@ DataHound-RAG/
 ├── templates/
 │   └── index.html                     # Web UI frontend
 ├── data/
-│   └── NVIDIA_CFO.pdf                 # Sample financial filing for reproducible benchmarking
+│   └── NVIDIA_CFO.pdf                 # Sample earnings commentary for reproducible benchmarking
 ├── benchmarks/
 │   ├── nvidia_cfo_eval.json           # 34 labelled evaluation items for NVIDIA_CFO
 │   ├── nvidia_cfo_calibration.json    # 20 disjoint held-out queries for tau_dense calibration
@@ -144,7 +144,7 @@ DataHound-RAG/
 ├── reports/
 │   ├── VERIFICATION_FINAL.md          # Comprehensive statistical verification report
 │   ├── rag_benchmark_report.md        # Generated retrieval ablation report (DevOps corpus)
-│   ├── rag_chunking_report.md         # Generated chunking ablation report (60-row ledger)
+│   ├── rag_chunking_report.md         # Generated chunking ablation report (synthetic 60-row ledger)
 │   └── rag_nvidia_cfo_report.md       # Generated real-PDF benchmark report (NVIDIA Q4 FY25)
 └── requirements.txt                   # Core Python dependencies (offline RAG runtime)
 ```
@@ -260,6 +260,17 @@ pytest -q
 Run `pytest -q` from the repo root. On a fresh clone, 62 tests pass and `test_nvidia_eval_dataset_valid` is skipped until you ingest data/nvidia_cfo.pdf (`python ingestion.py data/NVIDIA_CFO.pdf` followed by `python chunker.py processed_md/NVIDIA_CFO.md`) to create chunks/NVIDIA_CFO_chunks.json; with local chunks all 63 pass. data/nvidia_cfo.pdf is NVIDIA's publicly released Q4 FY25 CFO commentary, included unmodified for reproducibility (© NVIDIA; removed on request).
 
 ### Run Benchmarks
+
+#### Judge setup (optional): the default RAG Triad judge is Gemini.
+```powershell
+pip install -r requirements-eval.txt
+```
+####   copy .env.example .env   (then set GEMINI_API_KEY in .env & never commit .env)
+#### No key? Pass 
+```powershell
+--judge-provider ollama to judge locally with Llama 3.1 instead.
+```
+> **Note: Using an external LLM API (like here: Gemini) as the default judge is highly recommended. This eliminates the possibility of **self-evaluation bias**.
 
 ```powershell
 # 1. Offline pipeline smoke test (character n-gram hashing embedder, no Ollama required)
